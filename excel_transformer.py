@@ -62,6 +62,21 @@ def normalize_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def parse_extra_columns(extra_columns: str | None) -> list[str]:
+    if not extra_columns:
+        return []
+    columns = [column.strip() for column in extra_columns.split(",")]
+    return [column for column in columns if column]
+
+
+def build_target_columns(extra_columns: list[str]) -> list[str]:
+    target_columns = list(DEFAULT_TARGET_COLUMNS)
+    for column in extra_columns:
+        if column not in target_columns:
+            target_columns.append(column)
+    return target_columns
+
+
 def build_target_dataframe(
     source_df: pd.DataFrame,
     mapping: dict,
@@ -107,6 +122,10 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="目标表格最少行数，不足则补空行",
     )
+    parser.add_argument(
+        "--extra-columns",
+        help="追加到目标模板的列名，使用逗号分隔",
+    )
     return parser.parse_args()
 
 
@@ -115,6 +134,8 @@ def main() -> None:
     input_path = Path(args.input)
     output_path = Path(args.output)
     mapping_path = Path(args.mapping) if args.mapping else None
+    extra_columns = parse_extra_columns(args.extra_columns)
+    target_columns = build_target_columns(extra_columns)
 
     source_df = pd.read_excel(input_path)
     source_df = normalize_dataframe(source_df)
@@ -123,7 +144,7 @@ def main() -> None:
     target_df = build_target_dataframe(
         source_df=source_df,
         mapping=mapping,
-        target_columns=DEFAULT_TARGET_COLUMNS,
+        target_columns=target_columns,
         min_rows=args.min_rows,
     )
 

@@ -25,6 +25,12 @@ python excel_transformer.py --input source.xlsx --output output.xlsx
 python excel_transformer.py --input source.xlsx --output output.xlsx --min-rows 50
 ```
 
+如需追加目标字段（逗号分隔）：
+
+```bash
+python excel_transformer.py --input source.xlsx --output output.xlsx --extra-columns "负责人,备注"
+```
+
 ## 自定义映射
 
 你可以提供自定义 JSON 映射文件：
