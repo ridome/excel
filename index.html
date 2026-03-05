@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Custom Classification Training</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        darkbg: '#0f172a', /* slate-900 */
+                        panel: '#1e293b', /* slate-800 */
+                        primary: '#3b82f6', /* blue-500 */
+                        accent: '#10b981', /* emerald-500 */
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: theme('colors.darkbg');
+            color: #e2e8f0; /* slate-200 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .dragging {
+            opacity: 0.5;
+        }
+        .drag-over {
+            border-color: theme('colors.primary') !important;
+            background-color: rgba(59, 130, 246, 0.1) !important;
+        }
+        /* Custom scrollbar for dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex flex-col text-sm">
+    <!-- Top Bar -->
+    <header class="h-16 bg-panel border-b border-slate-700 flex items-center justify-between px-6 shrink-0">
+        <div class="flex items-center gap-4">
+            <h1 class="text-lg font-bold text-white tracking-wider">Custom Classification</h1>
+            <div class="h-6 w-px bg-slate-600"></div>
+
+            <div class="flex items-center gap-2">
+                <label for="base-trigger" class="text-slate-400">Base Trigger:</label>
+                <select id="base-trigger" class="bg-slate-700 border border-slate-600 text-white rounded px-2 py-1 focus:outline-none focus:border-primary">
+                    <option value="person">Person</option>
+                    <option value="car" selected>Car</option>
+                    <option value="dog">Dog</option>
+                    <option value="cat">Cat</option>
+                    <option value="motion">Motion Zone</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <input type="text" id="new-class-input" placeholder="New class name (e.g. My_Car)" class="bg-slate-700 border border-slate-600 text-white rounded px-3 py-1 focus:outline-none focus:border-primary w-48">
+            <button id="add-class-btn" class="bg-primary hover:bg-blue-600 text-white px-3 py-1 rounded transition-colors font-medium">Add Class</button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex overflow-hidden">
+
+        <!-- Left Sidebar: Inbox -->
+        <aside class="w-1/4 bg-panel border-r border-slate-700 flex flex-col">
+            <div class="p-4 border-b border-slate-700 bg-slate-800/50">
+                <h2 class="font-semibold text-slate-300">Unclassified Crops</h2>
+                <p class="text-xs text-slate-500 mt-1">Drag images to buckets</p>
+            </div>
+            <div class="flex-1 overflow-y-auto p-4">
+                <div id="inbox-grid" class="grid grid-cols-2 gap-3">
+                    <!-- Crops will be generated here by JS -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- Middle Workspace: Buckets & Training -->
+        <section class="w-2/4 flex flex-col bg-darkbg">
+            <div class="p-4 border-b border-slate-700 bg-panel flex justify-between items-center">
+                <h2 class="font-semibold text-slate-300">Classification Buckets</h2>
+                <span class="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded">Drop zone</span>
+            </div>
+
+            <!-- Buckets Container -->
+            <div class="flex-1 overflow-y-auto p-6">
+                <div id="buckets-container" class="flex gap-4 overflow-x-auto pb-4">
+                    <!-- Default buckets will be generated here -->
+                </div>
+            </div>
+
+            <!-- Training Control Panel -->
+            <div class="h-64 border-t border-slate-700 bg-panel p-4 flex flex-col gap-4">
+                <div class="flex justify-between items-end">
+                    <div>
+                        <h3 class="font-semibold text-white">Training Dashboard</h3>
+                        <p class="text-xs text-slate-400">Train model based on categorized crops</p>
+                    </div>
+                    <button id="start-train-btn" class="bg-accent hover:bg-emerald-600 text-white px-6 py-2 rounded font-bold shadow-lg shadow-emerald-900/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed">Start Training Classifier</button>
+                </div>
+
+                <div class="flex-1 flex gap-6 items-center">
+                    <!-- Progress & Status -->
+                    <div class="w-1/3 flex flex-col justify-center gap-2">
+                        <div class="flex justify-between text-xs font-mono">
+                            <span id="train-status">Ready</span>
+                            <span id="train-percent">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-700 rounded-full h-2.5">
+                            <div id="train-progress" class="bg-accent h-2.5 rounded-full" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Chart -->
+                    <div class="w-2/3 h-full relative bg-slate-900/50 rounded border border-slate-700 p-2">
+                        <canvas id="trainingChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Sidebar: Preview & Deploy -->
+        <aside class="w-1/4 bg-panel border-l border-slate-700 flex flex-col">
+            <div class="p-4 border-b border-slate-700 bg-slate-800/50">
+                <h2 class="font-semibold text-slate-300">Preview & Deploy</h2>
+            </div>
+
+            <div class="flex-1 p-4 flex flex-col gap-6">
+                <!-- Live Preview Simulation -->
+                <div class="flex-1">
+                    <h3 class="text-xs text-slate-400 uppercase tracking-wider mb-2">Live Camera Simulation</h3>
+                    <div class="relative w-full aspect-video bg-black rounded overflow-hidden border border-slate-600">
+                        <!-- Placeholder Surveillance Image -->
+                        <img src="https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?auto=format&fit=crop&q=80&w=800" alt="Surveillance" class="w-full h-full object-cover opacity-80">
+
+                        <!-- Bounding Boxes -->
+                        <div class="absolute top-[30%] left-[20%] w-[40%] h-[40%] border-2 border-blue-500 bg-blue-500/10 pointer-events-none">
+                            <div class="absolute -top-6 left-[-2px] bg-blue-500 text-white text-[10px] px-1 font-mono">Car (Base)</div>
+
+                            <!-- Inner Custom Label (Hidden initially) -->
+                            <div id="preview-custom-label" class="absolute bottom-2 right-2 border border-accent bg-accent/20 px-1 hidden">
+                                <span class="bg-accent text-white text-[10px] px-1 font-mono">My_Car (98%)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Deploy Button -->
+                <div class="mt-auto">
+                    <button id="deploy-btn" class="w-full bg-slate-700 hover:bg-slate-600 text-white border border-slate-500 py-3 rounded font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        Deploy Pipeline to Camera
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+    </main>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-emerald-600 text-white px-4 py-3 rounded shadow-lg transform transition-transform translate-y-20 opacity-0 flex items-center gap-2 z-50">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+        <span>Pipeline and model deployed successfully!</span>
+    </div>
+
+    <script>
+        // --- State ---
+        let classes = ['My_Car', 'Delivery_Truck'];
+        let crops = [
+            { id: 'c1', type: 'car1', img: 'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=150&q=80' },
+            { id: 'c2', type: 'car2', img: 'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?auto=format&fit=crop&w=150&q=80' },
+            { id: 'c3', type: 'truck1', img: 'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=150&q=80' },
+            { id: 'c4', type: 'car3', img: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&w=150&q=80' },
+            { id: 'c5', type: 'truck2', img: 'https://images.unsplash.com/photo-1586864387967-d02ef85d93e8?auto=format&fit=crop&w=150&q=80' },
+            { id: 'c6', type: 'car4', img: 'https://images.unsplash.com/photo-1542282088-fe8426682b8f?auto=format&fit=crop&w=150&q=80' }
+        ];
+        let chartInstance = null;
+
+        // --- DOM Elements ---
+        const inboxGrid = document.getElementById('inbox-grid');
+        const bucketsContainer = document.getElementById('buckets-container');
+        const newClassInput = document.getElementById('new-class-input');
+        const addClassBtn = document.getElementById('add-class-btn');
+        const startTrainBtn = document.getElementById('start-train-btn');
+        const trainProgress = document.getElementById('train-progress');
+        const trainStatus = document.getElementById('train-status');
+        const trainPercent = document.getElementById('train-percent');
+        const deployBtn = document.getElementById('deploy-btn');
+        const previewCustomLabel = document.getElementById('preview-custom-label');
+        const toast = document.getElementById('toast');
+
+        // --- Initialization ---
+        function init() {
+            renderInbox();
+            renderBuckets();
+            initChart();
+            setupEventListeners();
+        }
+
+        // --- Render Functions ---
+        function renderInbox() {
+            inboxGrid.innerHTML = '';
+            crops.forEach(crop => {
+                const el = document.createElement('div');
+                el.className = 'aspect-square bg-slate-800 rounded border border-slate-700 overflow-hidden cursor-grab active:cursor-grabbing hover:border-slate-500 transition-colors group relative';
+                el.draggable = true;
+                el.id = crop.id;
+
+                el.innerHTML = `
+                    <img src="${crop.img}" alt="crop" class="w-full h-full object-cover pointer-events-none group-hover:scale-110 transition-transform duration-300">
+                    <div class="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none"></div>
+                `;
+
+                el.addEventListener('dragstart', handleDragStart);
+                el.addEventListener('dragend', handleDragEnd);
+
+                inboxGrid.appendChild(el);
+            });
+        }
+
+        function renderBuckets() {
+            bucketsContainer.innerHTML = '';
+            classes.forEach(cls => {
+                addBucket(cls);
+            });
+        }
+
+        function addBucket(cls) {
+            const bucket = document.createElement('div');
+            bucket.className = 'w-48 shrink-0 bg-slate-800/50 border-2 border-dashed border-slate-600 rounded-lg flex flex-col h-full transition-colors';
+            bucket.dataset.class = cls;
+
+            const safeCls = document.createElement('div');
+            safeCls.textContent = cls;
+            const encodedCls = safeCls.innerHTML;
+
+            bucket.innerHTML = `
+                <div class="p-3 border-b border-slate-700/50 flex justify-between items-center bg-slate-800 rounded-t-lg">
+                    <span class="font-mono font-bold text-white text-xs truncate" title="${encodedCls}">${encodedCls}</span>
+                    <span class="text-xs bg-slate-700 px-2 rounded-full count">0</span>
+                </div>
+                <div class="flex-1 p-2 flex flex-col gap-2 overflow-y-auto min-h-[150px] bucket-dropzone">
+                    <!-- Dropped items go here -->
+                    <div class="text-slate-500 text-xs text-center mt-4 empty-text">Drop images here</div>
+                </div>
+            `;
+
+            bucket.addEventListener('dragover', handleDragOver);
+            bucket.addEventListener('dragleave', handleDragLeave);
+            bucket.addEventListener('drop', handleDrop);
+
+            bucketsContainer.appendChild(bucket);
+        }
+
+        // --- Drag & Drop Handlers ---
+        let draggedItem = null;
+
+        function handleDragStart(e) {
+            draggedItem = this;
+            setTimeout(() => this.classList.add('dragging'), 0);
+            e.dataTransfer.effectAllowed = 'move';
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+            draggedItem = null;
+
+            // Remove drop zone highlights
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            this.classList.add('drag-over');
+        }
+
+        function handleDragLeave(e) {
+            this.classList.remove('drag-over');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+
+            if (draggedItem) {
+                const dropzone = this.querySelector('.bucket-dropzone');
+                const emptyText = dropzone.querySelector('.empty-text');
+                if (emptyText) emptyText.style.display = 'none';
+
+                // Move the item
+                // We create a smaller version for the bucket
+                const itemClone = draggedItem.cloneNode(true);
+                itemClone.className = 'h-16 w-full bg-black rounded overflow-hidden shrink-0 border border-slate-600 relative group cursor-pointer';
+                itemClone.draggable = false;
+
+                // Add a remove button overlay
+                const removeBtn = document.createElement('div');
+                removeBtn.className = 'absolute inset-0 bg-red-500/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity';
+                removeBtn.innerHTML = '<svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+                removeBtn.onclick = () => {
+                    // Return to inbox
+                    itemClone.remove();
+                    updateBucketCount(this);
+
+                    // Recreate item for inbox
+                    const originalItem = document.createElement('div');
+                    originalItem.className = 'aspect-square bg-slate-800 rounded border border-slate-700 overflow-hidden cursor-grab active:cursor-grabbing hover:border-slate-500 transition-colors group relative';
+                    originalItem.draggable = true;
+                    originalItem.id = itemClone.id;
+                    const img = itemClone.querySelector('img').cloneNode();
+                    img.className = 'w-full h-full object-cover pointer-events-none group-hover:scale-110 transition-transform duration-300';
+                    originalItem.appendChild(img);
+                    originalItem.innerHTML += '<div class="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none"></div>';
+                    originalItem.addEventListener('dragstart', handleDragStart);
+                    originalItem.addEventListener('dragend', handleDragEnd);
+                    document.getElementById('inbox-grid').appendChild(originalItem);
+                    if(dropzone.children.length === 1) { // only empty-text left
+                         emptyText.style.display = 'block';
+                    }
+                };
+                itemClone.appendChild(removeBtn);
+
+                dropzone.appendChild(itemClone);
+                draggedItem.remove(); // Remove from inbox
+
+                updateBucketCount(this);
+            }
+        }
+
+        function updateBucketCount(bucket) {
+            const countEl = bucket.querySelector('.count');
+            const items = bucket.querySelectorAll('.bucket-dropzone > div:not(.empty-text)').length;
+            countEl.textContent = items;
+
+            // Enable training if we have some items
+            const totalClassified = Array.from(document.querySelectorAll('.count')).reduce((acc, el) => acc + parseInt(el.textContent), 0);
+            if (totalClassified > 0) {
+                startTrainBtn.classList.add('animate-pulse');
+            } else {
+                startTrainBtn.classList.remove('animate-pulse');
+            }
+        }
+
+        // --- Class Management ---
+        function setupEventListeners() {
+            addClassBtn.addEventListener('click', () => {
+                const val = newClassInput.value.trim().replace(/\s+/g, '_');
+                if (val && !classes.includes(val)) {
+                    classes.push(val);
+                    newClassInput.value = '';
+                    addBucket(val);
+                }
+            });
+
+            newClassInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') addClassBtn.click();
+            });
+
+            startTrainBtn.addEventListener('click', simulateTraining);
+            deployBtn.addEventListener('click', simulateDeploy);
+        }
+
+        // --- Chart & Training Simulation ---
+        function initChart() {
+            const ctx = document.getElementById('trainingChart').getContext('2d');
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Accuracy',
+                            data: [],
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            fill: true,
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Loss',
+                            data: [],
+                            borderColor: '#ef4444',
+                            borderWidth: 2,
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 },
+                    plugins: {
+                        legend: { position: 'top', labels: { boxWidth: 12 } }
+                    },
+                    scales: {
+                        x: { display: false },
+                        y: { type: 'linear', display: true, position: 'left', min: 0, max: 1 },
+                        y1: { type: 'linear', display: true, position: 'right', min: 0, grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+        }
+
+        function simulateTraining() {
+            // Reset
+            startTrainBtn.disabled = true;
+            startTrainBtn.classList.remove('animate-pulse');
+            startTrainBtn.textContent = 'Training...';
+            deployBtn.disabled = true;
+            previewCustomLabel.classList.add('hidden');
+
+            chartInstance.data.labels = [];
+            chartInstance.data.datasets[0].data = [];
+            chartInstance.data.datasets[1].data = [];
+            chartInstance.update();
+
+            let epoch = 0;
+            const totalEpochs = 20;
+            let currentAcc = 0.1;
+            let currentLoss = 2.0;
+
+            trainStatus.textContent = 'Training Model...';
+            trainStatus.classList.remove('text-accent');
+            trainStatus.classList.add('text-primary');
+
+            const interval = setInterval(() => {
+                epoch++;
+
+                // Simulate curve
+                currentAcc = currentAcc + (0.98 - currentAcc) * 0.3 + (Math.random() * 0.05 - 0.02);
+                currentLoss = currentLoss * 0.8 + (Math.random() * 0.1 - 0.05);
+                if (currentAcc > 0.99) currentAcc = 0.99;
+                if (currentLoss < 0.05) currentLoss = 0.05;
+
+                chartInstance.data.labels.push(epoch);
+                chartInstance.data.datasets[0].data.push(currentAcc);
+                chartInstance.data.datasets[1].data.push(currentLoss);
+                chartInstance.update();
+
+                const progress = Math.round((epoch / totalEpochs) * 100);
+                trainProgress.style.width = `${progress}%`;
+                trainPercent.textContent = `${progress}%`;
+
+                if (epoch >= totalEpochs) {
+                    clearInterval(interval);
+                    trainStatus.textContent = 'Training Complete';
+                    trainStatus.classList.replace('text-primary', 'text-accent');
+                    startTrainBtn.textContent = 'Retrain Classifier';
+                    startTrainBtn.disabled = false;
+
+                    // Enable deploy
+                    deployBtn.disabled = false;
+                    deployBtn.classList.replace('bg-slate-700', 'bg-primary');
+                    deployBtn.classList.replace('text-white', 'text-white');
+                    deployBtn.classList.replace('border-slate-500', 'border-blue-500');
+                    deployBtn.classList.add('hover:bg-blue-600', 'shadow-lg', 'shadow-blue-900/50');
+                }
+            }, 150); // 3 seconds total
+        }
+
+        // --- Deploy Simulation ---
+        function simulateDeploy() {
+            deployBtn.disabled = true;
+            deployBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Deploying...';
+
+            setTimeout(() => {
+                deployBtn.disabled = false;
+                deployBtn.textContent = 'Deploy Pipeline to Camera';
+
+                // Show preview label
+                previewCustomLabel.classList.remove('hidden');
+
+                // Show toast
+                toast.classList.remove('translate-y-20', 'opacity-0');
+                setTimeout(() => {
+                    toast.classList.add('translate-y-20', 'opacity-0');
+                }, 3000);
+            }, 1500);
+        }
+
+        // Run
+        init();
+    </script>
+</body>
+</html>
