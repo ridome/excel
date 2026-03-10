@@ -40,12 +40,9 @@ def process_file(input_path: str, output_path: str):
             if not gpt_turn:
                 raise ValueError(f"第 {i+1} 条数据缺少 'gpt' 对话")
 
-            if "ds_event" not in gpt_turn:
-                raise ValueError(f"第 {i+1} 条数据的 'gpt' 对话中缺少 'ds_event' 字段")
-
             ds_event   = gpt_turn.get("ds_event", "")
-            level      = parse_level(ds_event)
-            reason     = parse_reason(ds_event)
+            level      = parse_level(ds_event) if ds_event else "none"
+            reason     = parse_reason(ds_event) if ds_event else "none"
             important  = item.get("important", False)
 
             task = {
