@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reolink AI Lab - 自定义视觉引擎</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        reoblue: '#1E3A8A', // Deep Blue
+                        reolight: '#3B82F6', // Light Blue
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+        .step-content { display: none !important; }
+        .step-content.active { display: flex !important; animation: fadeIn 0.4s ease-out forwards; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .term-scroll::-webkit-scrollbar { width: 6px; }
+        .term-scroll::-webkit-scrollbar-track { background: #1f2937; }
+        .term-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+
+        @keyframes streamData {
+            0% { transform: translateX(-100%); opacity: 0; }
+            50% { opacity: 1; }
+            100% { transform: translateX(100%); opacity: 0; }
+        }
+        .data-packet {
+            animation: streamData 1.5s linear infinite;
+        }
+
+        .resize-handle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: white;
+            border: 2px solid #3B82F6;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen w-screen overflow-hidden flex min-w-[1024px]">
+
+    <!-- Left Sidebar: Stepper -->
+    <aside class="w-72 bg-white border-r border-gray-200 flex flex-col shadow-sm z-10">
+        <div class="p-6 border-b border-gray-100">
+            <h1 class="text-2xl font-bold text-reoblue tracking-tight">Reolink AI Lab</h1>
+            <p class="text-xs text-gray-500 mt-1">自定义视觉引擎 v1.0</p>
+        </div>
+
+        <nav id="stepper" class="flex-1 p-6 space-y-6">
+            <!-- Step 1 -->
+            <div class="step-nav-item flex items-start gap-4 cursor-pointer" data-step="1" onclick="jumpToStep(1)">
+                <div class="nav-indicator flex-shrink-0 w-8 h-8 rounded-full bg-reoblue text-white flex items-center justify-center font-bold text-sm shadow-sm transition-colors">1</div>
+                <div>
+                    <h3 class="nav-title text-sm font-semibold text-gray-900 transition-colors">选择设备</h3>
+                    <p class="text-xs text-gray-500 mt-1">选择目标摄像机</p>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="step-nav-item flex items-start gap-4 opacity-50 cursor-not-allowed" data-step="2" onclick="jumpToStep(2)">
+                <div class="nav-indicator flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-bold text-sm transition-colors">2</div>
+                <div>
+                    <h3 class="nav-title text-sm font-semibold text-gray-500 transition-colors">初始化环境</h3>
+                    <p class="text-xs text-gray-500 mt-1">本地训练引擎</p>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="step-nav-item flex items-start gap-4 opacity-50 cursor-not-allowed" data-step="3" onclick="jumpToStep(3)">
+                <div class="nav-indicator flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-bold text-sm transition-colors">3</div>
+                <div>
+                    <h3 class="nav-title text-sm font-semibold text-gray-500 transition-colors">定义与训练</h3>
+                    <p class="text-xs text-gray-500 mt-1">专属 AI 视觉任务</p>
+                </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="step-nav-item flex items-start gap-4 opacity-50 cursor-not-allowed" data-step="4" onclick="jumpToStep(4)">
+                <div class="nav-indicator flex-shrink-0 w-8 h-8 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center font-bold text-sm transition-colors">4</div>
+                <div>
+                    <h3 class="nav-title text-sm font-semibold text-gray-500 transition-colors">边缘部署</h3>
+                    <p class="text-xs text-gray-500 mt-1">同步至摄像机</p>
+                </div>
+            </div>
+        </nav>
+
+        <div class="p-6 border-t border-gray-100 flex items-center justify-center">
+            <span class="text-xs text-gray-400 font-mono">Local Processing Mode</span>
+        </div>
+    </aside>
+
+    <!-- Right Content Area -->
+    <main class="flex-1 flex flex-col relative h-full bg-gray-50/50">
+        <div id="content-container" class="flex-1 p-10 overflow-hidden flex flex-col relative">
+
+            <!-- Step 1 Content -->
+            <div id="step-1" class="step-content active flex-1 flex flex-col h-full">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">步骤 1：选择目标摄像机</h2>
+
+                <div class="grid grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="device-card bg-white border-2 border-transparent rounded-xl p-5 cursor-pointer hover:shadow-md transition-all flex flex-col items-center gap-3 shadow-sm ring-1 ring-gray-200" onclick="selectDevice(this)">
+                        <div class="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-reoblue">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div class="text-center">
+                            <h4 class="font-semibold text-gray-800">RLC-810A</h4>
+                            <p class="text-sm text-gray-500">前院 (Front Yard)</p>
+                        </div>
+                    </div>
+
+                    <div class="device-card bg-white border-2 border-transparent rounded-xl p-5 cursor-pointer hover:shadow-md transition-all flex flex-col items-center gap-3 shadow-sm ring-1 ring-gray-200" onclick="selectDevice(this)">
+                        <div class="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center text-reoblue">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div class="text-center">
+                            <h4 class="font-semibold text-gray-800">Argus Track</h4>
+                            <p class="text-sm text-gray-500">车库 (Garage)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2 Content -->
+            <div id="step-2" class="step-content flex-1 flex flex-col h-full">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6">步骤 2：初始化本地训练引擎</h2>
+
+                <div class="flex-1 bg-gray-900 rounded-xl shadow-2xl border border-gray-800 flex flex-col overflow-hidden relative font-mono mb-4">
+                    <div class="bg-gray-800 px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+                        <div class="flex space-x-2">
+                            <div class="w-3 h-3 rounded-full bg-red-500 shadow-sm"></div>
+                            <div class="w-3 h-3 rounded-full bg-yellow-500 shadow-sm"></div>
+                            <div class="w-3 h-3 rounded-full bg-green-500 shadow-sm"></div>
+                        </div>
+                        <div class="text-xs text-gray-400 font-semibold tracking-wider">reolink-ai-core-cli</div>
+                        <div class="w-10"></div>
+                    </div>
+
+                    <div class="p-6 flex-1 overflow-y-auto term-scroll text-sm text-green-400 font-mono leading-relaxed" id="terminal-output">
+                        <div class="text-gray-500 mb-4"># Ready to initialize local AI environment for selected device.</div>
+                    </div>
+
+                    <div class="p-4 bg-gray-800/80 border-t border-gray-700 flex items-center gap-4">
+                        <button id="init-env-btn" class="bg-reoblue hover:bg-blue-600 text-white px-6 py-2.5 rounded-lg font-sans text-sm font-semibold transition-all shadow-md focus:ring-2 focus:ring-blue-400 focus:outline-none" onclick="startInitEnv()">开始初始化</button>
+                        <div class="flex-1 bg-gray-700 h-2.5 rounded-full overflow-hidden hidden shadow-inner" id="init-progress-bg">
+                            <div class="bg-blue-500 h-full w-0 transition-all duration-300" id="init-progress-bar"></div>
+                        </div>
+                        <span id="init-status-text" class="text-xs text-gray-300 hidden font-sans font-medium w-8 text-right">0%</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3 Content -->
+            <div id="step-3" class="step-content flex-1 flex flex-col h-full overflow-hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 shrink-0">步骤 3：定义您的专属 AI 视觉任务</h2>
+
+                <div class="flex-1 flex gap-6 min-h-0">
+                    <!-- Left: Video & ROI Area -->
+                    <div class="w-[60%] flex flex-col gap-4">
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex-1 flex flex-col">
+                            <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-reoblue" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                                实时画面与检测区域 (ROI)
+                            </h3>
+                            <div class="relative flex-1 bg-gray-200 rounded-lg overflow-hidden flex items-center justify-center">
+                                <img src="https://images.unsplash.com/photo-1595428774223-ef52624120d2?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80" alt="Camera Feed" class="w-full h-full object-cover select-none">
+                                <div class="absolute inset-0 z-10" id="canvas-overlay">
+                                    <div class="absolute top-1/4 left-1/4 w-1/2 h-1/2 bg-blue-500/20 border-2 border-dashed border-reoblue flex items-center justify-center cursor-move" style="box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);">
+                                        <div class="text-white text-sm font-semibold drop-shadow-md text-center bg-black/50 px-3 py-1 rounded">
+                                            监控区域 (ROI)
+                                        </div>
+                                        <div class="resize-handle -top-1.5 -left-1.5 cursor-nwse-resize"></div>
+                                        <div class="resize-handle -top-1.5 -right-1.5 cursor-nesw-resize"></div>
+                                        <div class="resize-handle -bottom-1.5 -left-1.5 cursor-nesw-resize"></div>
+                                        <div class="resize-handle -bottom-1.5 -right-1.5 cursor-nwse-resize"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-3 text-center">提示：请拖动并调整蓝色框线，圈出需要重点监控的区域。</p>
+                        </div>
+                    </div>
+
+                    <!-- Right: Configuration & Training -->
+                    <div class="w-[40%] bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden relative" id="training-panel">
+                        <!-- Configuration View -->
+                        <div id="config-view" class="flex-1 flex flex-col p-5 overflow-y-auto">
+                            <!-- 3.1 Task Type -->
+                            <div class="mb-6">
+                                <h3 class="text-sm font-semibold text-gray-800 mb-3">任务类型</h3>
+                                <div class="space-y-2">
+                                    <label class="flex items-center gap-2 p-2.5 border border-reoblue bg-blue-50 rounded-lg cursor-pointer">
+                                        <input type="radio" name="task_type" value="fixed" class="text-reoblue focus:ring-reoblue" checked onchange="handleTaskTypeChange()">
+                                        <span class="text-sm font-medium text-gray-800">固定区域状态检测</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 p-2.5 border border-gray-200 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors">
+                                        <input type="radio" name="task_type" value="moving" class="text-reoblue focus:ring-reoblue" onchange="handleTaskTypeChange()">
+                                        <span class="text-sm text-gray-600">新增移动目标检测</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 p-2.5 border border-gray-200 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors">
+                                        <input type="radio" name="task_type" value="known" class="text-reoblue focus:ring-reoblue" onchange="handleTaskTypeChange()">
+                                        <span class="text-sm text-gray-600">已知目标细分</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- 3.2 Dynamic Classes -->
+                            <div class="mb-6" id="section-define-classes">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="text-sm font-semibold text-gray-800">定义检测状态</h3>
+                                    <button onclick="addState()" class="text-xs text-reoblue hover:text-blue-700 font-medium flex items-center gap-1">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                                        添加状态
+                                    </button>
+                                </div>
+                                <div id="states-container" class="space-y-3">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+
+                            <!-- 3.3 Dynamic Samples -->
+                            <div class="flex-1 mb-6 flex flex-col min-h-0" id="section-data-collection">
+                                <h3 class="text-sm font-semibold text-gray-800 mb-3">采集训练样本</h3>
+                                <div class="flex-1 overflow-y-auto space-y-4 pr-1" id="samples-container">
+                                    <!-- Populated by JS -->
+                                </div>
+                            </div>
+
+                            <!-- 3.3 Single Target Samples (Hidden by default) -->
+                            <div class="flex-1 mb-6 flex flex-col min-h-0 hidden" id="section-single-target">
+                                <h3 class="text-sm font-semibold text-gray-800 mb-3">采集目标样本</h3>
+                                <p class="text-xs text-gray-500 mb-3">针对新增移动目标，您只需收集目标在不同角度和光线下的样本。</p>
+                                <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 flex flex-col">
+                                    <div class="flex justify-between items-center mb-3">
+                                        <span class="text-xs font-semibold text-gray-700">目标对象样本</span>
+                                        <span class="text-xs text-gray-500 bg-white px-2 py-0.5 rounded border border-gray-200 shadow-sm" id="single-sample-count">已采集: 0/5 (至少需要 5 张)</span>
+                                    </div>
+                                    <button class="w-full py-2 bg-white border border-gray-300 rounded-md text-sm text-gray-700 font-medium hover:bg-gray-50 hover:text-reoblue hover:border-reoblue transition-colors mb-3 flex items-center justify-center gap-2" onclick="captureSingleSample()">
+                                        <span class="text-lg">📸</span> 截取当前画面作为样本
+                                    </button>
+                                    <div class="grid grid-cols-4 gap-2" id="single-sample-grid">
+                                        <!-- Populated by JS -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mt-auto pt-4 border-t border-gray-100 shrink-0">
+                                <button id="train-btn" disabled onclick="startTraining()" class="w-full py-3 bg-gray-300 text-gray-500 rounded-lg font-bold shadow-md cursor-not-allowed transition-all flex justify-center items-center gap-2">
+                                    ⚠️ 需采集足够样本方可训练
+                                </button>
+                                <p class="text-[10px] text-gray-400 text-center mt-2">每个状态至少需要 5 张样本才能开始训练</p>
+                            </div>
+                        </div>
+
+                        <!-- Training Simulator View -->
+                        <div id="training-view" class="absolute inset-0 bg-gray-900 flex flex-col hidden z-20">
+                            <div class="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-800">
+                                <h3 class="text-white font-semibold text-sm">模型训练中...</h3>
+                                <div class="flex gap-1.5">
+                                    <div class="w-2 h-2 bg-reoblue rounded-full animate-ping"></div>
+                                </div>
+                            </div>
+
+                            <div class="flex-1 p-5 overflow-y-auto term-scroll font-mono text-xs text-gray-300 space-y-1.5" id="train-logs">
+                                <div>[SYS] Initializing local training pipeline...</div>
+                            </div>
+
+                            <div class="p-5 bg-gray-800/80 border-t border-gray-800">
+                                <div class="flex justify-between text-xs mb-1.5 font-mono">
+                                    <span class="text-blue-400">Epoch Progress</span>
+                                    <span class="text-white" id="train-progress-text">0%</span>
+                                </div>
+                                <div class="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
+                                    <div class="bg-blue-500 h-full w-0 transition-all duration-300" id="train-progress-bar"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4 Content -->
+            <div id="step-4" class="step-content flex-1 flex flex-col h-full overflow-hidden">
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 shrink-0">步骤 4：边缘部署与同步</h2>
+
+                <div class="flex-1 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col items-center justify-center p-8 relative overflow-hidden">
+                    <div class="text-center mb-12">
+                        <h3 class="text-lg font-semibold text-gray-800">将您的专属 AI 模型同步至目标摄像机</h3>
+                        <p class="text-sm text-gray-500 mt-2">模型文件极小，传输速度快，不消耗摄像机额外算力</p>
+                    </div>
+
+                    <div class="flex items-center justify-center w-full max-w-2xl px-10 relative h-48">
+                        <div class="flex flex-col items-center z-10">
+                            <div class="w-24 h-24 bg-blue-50 border-2 border-blue-100 rounded-2xl flex items-center justify-center text-reoblue shadow-md mb-3">
+                                <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <span class="text-sm font-semibold text-gray-700">PC 端 (实验室)</span>
+                        </div>
+
+                        <div class="flex-1 relative h-full flex items-center justify-center px-4">
+                            <div class="absolute w-full border-t-2 border-dashed border-gray-300"></div>
+                            <div id="data-stream" class="hidden absolute w-full flex justify-around">
+                                <div class="w-3 h-3 bg-reolight rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] data-packet"></div>
+                                <div class="w-3 h-3 bg-reolight rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] data-packet" style="animation-delay: 0.5s;"></div>
+                                <div class="w-3 h-3 bg-reolight rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)] data-packet" style="animation-delay: 1s;"></div>
+                            </div>
+                            <button id="deploy-btn" onclick="startDeploy()" class="relative z-10 bg-white border border-gray-200 px-6 py-2 rounded-full text-sm font-bold text-reoblue hover:bg-blue-50 shadow-sm transition-colors">
+                                点击同步到摄像机
+                            </button>
+                        </div>
+
+                        <div class="flex flex-col items-center z-10">
+                            <div id="cam-bg" class="w-24 h-24 bg-gray-50 border-2 border-gray-200 rounded-2xl flex items-center justify-center shadow-md mb-3 transition-colors duration-500">
+                                <svg id="cam-icon" class="w-12 h-12 text-gray-400 transition-colors duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <span class="text-sm font-semibold text-gray-700" id="target-device-name">摄像机</span>
+                        </div>
+                    </div>
+
+                    <div id="deploy-success" class="hidden absolute inset-0 bg-white/95 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
+                        <div class="text-center transform transition-all scale-100">
+                            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <svg class="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
+                            </div>
+                            <p class="text-lg font-bold text-gray-800">同步成功！</p>
+                            <p class="text-sm text-gray-500 mt-1">您的摄像机现在已具备离线识别能力。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bottom Action Bar -->
+        <div class="bg-white border-t border-gray-200 p-6 flex justify-end shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+            <button id="next-btn" class="bg-reoblue text-white px-8 py-2.5 rounded-lg font-medium shadow-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all" disabled onclick="nextStep()">下一步</button>
+        </div>
+    </main>
+
+    <script>
+        // -- Core Global State --
+        let currentStep = 1;
+        let maxUnlockedStep = 1;
+        let deviceSelected = false;
+        let initDone = false;
+        let trainingComplete = false;
+        let selectedDeviceName = '';
+
+        // -- Navigation Control --
+        function updateStepperUI() {
+            document.querySelectorAll('.step-nav-item').forEach(item => {
+                const step = parseInt(item.dataset.step);
+                const indicator = item.querySelector('.nav-indicator');
+                const title = item.querySelector('.nav-title');
+
+                indicator.className = 'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm transition-colors nav-indicator';
+                title.className = 'text-sm font-semibold nav-title transition-colors';
+
+                if (step === currentStep) {
+                    indicator.classList.add('bg-reoblue', 'text-white');
+                    title.classList.add('text-gray-900');
+                    item.classList.remove('opacity-50', 'cursor-not-allowed');
+                    item.classList.add('cursor-pointer');
+                } else if (step <= maxUnlockedStep) {
+                    indicator.classList.add('bg-blue-100', 'text-reoblue');
+                    title.classList.add('text-gray-700');
+                    item.classList.remove('opacity-50', 'cursor-not-allowed');
+                    item.classList.add('cursor-pointer');
+                } else {
+                    indicator.classList.add('bg-gray-200', 'text-gray-500');
+                    title.classList.add('text-gray-500');
+                    item.classList.add('opacity-50', 'cursor-not-allowed');
+                    item.classList.remove('cursor-pointer');
+                }
+            });
+
+            document.querySelectorAll('.step-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            const activeContent = document.getElementById(`step-${currentStep}`);
+            if (activeContent) activeContent.classList.add('active');
+
+            const nextBtn = document.getElementById('next-btn');
+            nextBtn.style.display = 'block';
+            nextBtn.innerText = '下一步';
+
+            if (currentStep === 1) nextBtn.disabled = !deviceSelected;
+            else if (currentStep === 2) nextBtn.disabled = !initDone;
+            else if (currentStep === 3) nextBtn.disabled = !trainingComplete;
+            else if (currentStep === 4) nextBtn.style.display = 'none';
+
+            if (currentStep === 4) {
+                document.getElementById('target-device-name').innerText = selectedDeviceName || '摄像机';
+            }
+        }
+
+        function nextStep() {
+            if (currentStep < 4) {
+                currentStep++;
+                maxUnlockedStep = Math.max(maxUnlockedStep, currentStep);
+                updateStepperUI();
+            }
+        }
+
+        function jumpToStep(step) {
+            if (step <= maxUnlockedStep) {
+                currentStep = step;
+                updateStepperUI();
+            }
+        }
+
+        // -- Step 1 Control --
+        function selectDevice(element) {
+            selectedDeviceName = element.querySelector('h4').innerText;
+            document.querySelectorAll('.device-card').forEach(card => {
+                card.classList.remove('border-reoblue', 'bg-blue-50/30', 'ring-reoblue');
+                card.classList.add('border-transparent', 'ring-gray-200');
+            });
+            element.classList.remove('border-transparent', 'ring-gray-200');
+            element.classList.add('border-reoblue', 'bg-blue-50/30', 'ring-reoblue');
+
+            deviceSelected = true;
+            maxUnlockedStep = Math.max(maxUnlockedStep, 1);
+            updateStepperUI();
+        }
+
+        // -- Step 2 Control --
+        function startInitEnv() {
+            const btn = document.getElementById('init-env-btn');
+            const term = document.getElementById('terminal-output');
+            const progressBg = document.getElementById('init-progress-bg');
+            const progressBar = document.getElementById('init-progress-bar');
+            const statusText = document.getElementById('init-status-text');
+
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            btn.innerText = '初始化中...';
+
+            progressBg.classList.remove('hidden');
+            statusText.classList.remove('hidden');
+
+            const logs = [
+                "Connecting to local daemon...",
+                "Downloading ONNX Runtime (CPU)...",
+                "Fetching MobileNetV2 Quantization Tools...",
+                "Setting up TensorRT profiles...",
+                "Verifying workspace integrity...",
+                "Environment ready. Status: OK"
+            ];
+
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i < logs.length) {
+                    const line = document.createElement('div');
+                    line.className = "mt-1";
+                    line.innerText = `> ${logs[i]}`;
+                    term.appendChild(line);
+
+                    const p = Math.floor(((i + 1) / logs.length) * 100);
+                    progressBar.style.width = p + '%';
+                    statusText.innerText = p + '%';
+
+                    term.scrollTop = term.scrollHeight;
+                    i++;
+                } else {
+                    clearInterval(interval);
+                    btn.innerText = '完成';
+                    initDone = true;
+                    maxUnlockedStep = Math.max(maxUnlockedStep, 2);
+                    term.innerHTML += '<div class="mt-4 text-white p-2 bg-green-500/20 rounded border border-green-500/50">✅ 引擎已成功挂载！点击下一步继续。</div>';
+                    term.scrollTop = term.scrollHeight;
+                    updateStepperUI();
+                }
+            }, 500);
+        }
+
+        // -- Step 3 Control --
+        let states = [
+            { id: 'state-1', name: 'Garage_Closed', samples: [] },
+            { id: 'state-2', name: 'Garage_Open', samples: [] }
+        ];
+        let singleTargetSamples = [];
+        let currentTaskType = 'fixed'; // fixed, moving, known
+
+        function renderStates() {
+            const container = document.getElementById('states-container');
+            if(!container) return;
+            container.innerHTML = '';
+
+            states.forEach((state, index) => {
+                const div = document.createElement('div');
+                div.className = "flex items-center gap-2";
+                div.innerHTML = `
+                    <div class="flex-1">
+                        <label class="block text-xs text-gray-500 mb-1">状态 ${index + 1} 名称</label>
+                        <input type="text" value="${state.name}" oninput="updateStateName('${state.id}', this.value)" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-reoblue focus:border-reoblue outline-none transition-shadow">
+                    </div>
+                    ${states.length > 2 ? `
+                    <button onclick="removeState('${state.id}')" class="mt-5 p-2 text-gray-400 hover:text-red-500 transition-colors" title="删除状态">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    </button>
+                    ` : '<div class="w-9"></div>'}
+                `;
+                container.appendChild(div);
+            });
+            renderSamples();
+        }
+
+        function addState() {
+            const newId = 'state-' + Date.now();
+            states.push({ id: newId, name: 'New_State_' + (states.length + 1), samples: [] });
+            renderStates();
+        }
+
+        function removeState(id) {
+            if (states.length <= 2) return;
+            states = states.filter(s => s.id !== id);
+            renderStates();
+        }
+
+        function updateStateName(id, val) {
+            const s = states.find(x => x.id === id);
+            if(s) s.name = val;
+            renderSamples();
+        }
+
+        function renderSamples() {
+            const container = document.getElementById('samples-container');
+            if(!container) return;
+            container.innerHTML = '';
+
+            states.forEach((state) => {
+                const count = state.samples.length;
+                const isComplete = count >= 5;
+                const countClass = isComplete ? 'text-green-600 font-medium bg-green-50 border-green-200' : 'text-gray-500 bg-white border-gray-200';
+
+                const div = document.createElement('div');
+                div.className = "bg-gray-50 border border-gray-200 rounded-lg p-3 flex flex-col";
+
+                let gridHtml = '';
+                state.samples.forEach((sampleImg, i) => {
+                    gridHtml += `<div class="aspect-square bg-gray-200 rounded overflow-hidden border border-gray-300">
+                        <img src="${sampleImg}" class="w-full h-full object-cover">
+                    </div>`;
+                });
+
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-semibold text-gray-700">状态：${state.name || '未命名'}</span>
+                        <span class="text-xs px-2 py-0.5 rounded border shadow-sm ${countClass}" id="count-${state.id}">已采集: ${count}/5 (至少需要 5 张)</span>
+                    </div>
+                    <button class="w-full py-2 bg-white border border-gray-300 rounded-md text-sm text-gray-700 font-medium hover:bg-gray-50 hover:text-reoblue hover:border-reoblue transition-colors mb-3 flex items-center justify-center gap-2" onclick="captureSample('${state.id}')">
+                        <span class="text-lg">📸</span> 截取当前画面作为样本
+                    </button>
+                    <div class="grid grid-cols-4 gap-2">
+                        ${gridHtml}
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+            checkTrainingReady();
+        }
+
+        function captureSample(id) {
+            const s = states.find(x => x.id === id);
+            if(s) {
+                s.samples.push(`https://images.unsplash.com/photo-1595428774223-ef52624120d2?ixlib=rb-4.0.3&auto=format&fit=crop&w=${100+s.samples.length}&q=80`);
+                renderSamples();
+            }
+        }
+
+        function captureSingleSample() {
+            singleTargetSamples.push(`https://images.unsplash.com/photo-1595428774223-ef52624120d2?ixlib=rb-4.0.3&auto=format&fit=crop&w=${100+singleTargetSamples.length}&q=80`);
+
+            const grid = document.getElementById('single-sample-grid');
+            const imgDiv = document.createElement('div');
+            imgDiv.className = "aspect-square bg-gray-200 rounded overflow-hidden border border-gray-300";
+            imgDiv.innerHTML = `<img src="${singleTargetSamples[singleTargetSamples.length-1]}" class="w-full h-full object-cover">`;
+            grid.appendChild(imgDiv);
+
+            const count = singleTargetSamples.length;
+            const counter = document.getElementById('single-sample-count');
+            counter.innerText = `已采集: ${count}/5 (至少需要 5 张)`;
+            if (count >= 5) counter.className = "text-xs px-2 py-0.5 rounded border shadow-sm text-green-600 font-medium bg-green-50 border-green-200";
+
+            checkTrainingReady();
+        }
+
+        function handleTaskTypeChange() {
+            const radios = document.getElementsByName('task_type');
+            radios.forEach(radio => {
+                const label = radio.parentElement;
+                const span = label.querySelector('span');
+                if (radio.checked) {
+                    currentTaskType = radio.value;
+                    label.classList.add('border-reoblue', 'bg-blue-50');
+                    label.classList.remove('border-gray-200', 'hover:bg-gray-50');
+                    span.classList.add('font-medium', 'text-gray-800');
+                    span.classList.remove('text-gray-600');
+                } else {
+                    label.classList.remove('border-reoblue', 'bg-blue-50');
+                    label.classList.add('border-gray-200', 'hover:bg-gray-50');
+                    span.classList.remove('font-medium', 'text-gray-800');
+                    span.classList.add('text-gray-600');
+                }
+            });
+
+            const secClass = document.getElementById('section-define-classes');
+            const secColl = document.getElementById('section-data-collection');
+            const secSing = document.getElementById('section-single-target');
+
+            if (currentTaskType === 'moving') {
+                secClass.classList.add('hidden');
+                secColl.classList.add('hidden');
+                secSing.classList.remove('hidden');
+            } else {
+                secClass.classList.remove('hidden');
+                secColl.classList.remove('hidden');
+                secSing.classList.add('hidden');
+
+                if (currentTaskType === 'known' && states.length === 2 && states[0].name === 'Garage_Closed') {
+                    states[0].name = 'Person';
+                    states[1].name = 'Vehicle';
+                    renderStates();
+                } else if (currentTaskType === 'fixed' && states.length === 2 && states[0].name === 'Person') {
+                    states[0].name = 'Garage_Closed';
+                    states[1].name = 'Garage_Open';
+                    renderStates();
+                }
+            }
+            checkTrainingReady();
+        }
+
+        function checkTrainingReady() {
+            const btn = document.getElementById('train-btn');
+            if(!btn) return;
+
+            let isReady = false;
+            if (currentTaskType === 'moving') {
+                isReady = singleTargetSamples.length >= 5;
+            } else {
+                isReady = states.every(s => s.samples.length >= 5);
+            }
+
+            if (isReady) {
+                btn.disabled = false;
+                btn.classList.remove('bg-gray-300', 'cursor-not-allowed', 'text-gray-500');
+                btn.classList.add('bg-reoblue', 'hover:bg-blue-600', 'text-white');
+                btn.innerHTML = '🚀 开始本地轻量化训练';
+            } else {
+                btn.disabled = true;
+                btn.classList.add('bg-gray-300', 'cursor-not-allowed', 'text-gray-500');
+                btn.classList.remove('bg-reoblue', 'hover:bg-blue-600', 'text-white');
+                btn.innerHTML = '⚠️ 需采集足够样本方可训练';
+            }
+        }
+
+        function startTraining() {
+            document.getElementById('config-view').classList.add('hidden');
+            const trainView = document.getElementById('training-view');
+            trainView.classList.remove('hidden');
+
+            const logsBox = document.getElementById('train-logs');
+            const progressText = document.getElementById('train-progress-text');
+            const progressBar = document.getElementById('train-progress-bar');
+
+            const logs = [
+                "Loading dataset into memory...",
+                "Extracting MobileNet Features...",
+                "Configuring Classification Head...",
+                "Epoch 1/10 - Loss: 0.842 - Acc: 0.42",
+                "Epoch 3/10 - Loss: 0.511 - Acc: 0.68",
+                "Epoch 6/10 - Loss: 0.234 - Acc: 0.89",
+                "Epoch 10/10 - Loss: 0.024 - Acc: 0.98",
+                "Quantizing to INT8 format...",
+                "Exporting ONNX model..."
+            ];
+
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i < logs.length) {
+                    const line = document.createElement('div');
+                    line.className = "mt-1";
+                    line.innerText = `> ${logs[i]}`;
+                    logsBox.appendChild(line);
+
+                    const p = Math.floor(((i + 1) / logs.length) * 100);
+                    progressBar.style.width = p + '%';
+                    progressText.innerText = p + '%';
+
+                    logsBox.scrollTop = logsBox.scrollHeight;
+                    i++;
+                } else {
+                    clearInterval(interval);
+                    logsBox.innerHTML += '<div class="mt-4 text-green-400 p-2 border border-green-500/30 rounded bg-green-500/10 flex items-center gap-2"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> 训练完成！生成独立权重文件，大小：2.4 KB。</div>';
+                    logsBox.scrollTop = logsBox.scrollHeight;
+
+                    trainingComplete = true;
+                    maxUnlockedStep = Math.max(maxUnlockedStep, 3);
+                    updateStepperUI();
+                }
+            }, 300);
+        }
+
+        // -- Step 4 Control --
+        function startDeploy() {
+            const btn = document.getElementById('deploy-btn');
+            const stream = document.getElementById('data-stream');
+            const camBg = document.getElementById('cam-bg');
+            const camIcon = document.getElementById('cam-icon');
+            const successMsg = document.getElementById('deploy-success');
+
+            btn.classList.add('hidden');
+            stream.classList.remove('hidden');
+
+            setTimeout(() => {
+                stream.classList.add('hidden');
+                camBg.classList.replace('bg-gray-50', 'bg-green-50');
+                camBg.classList.replace('border-gray-200', 'border-green-200');
+                camIcon.classList.replace('text-gray-400', 'text-green-500');
+
+                successMsg.classList.remove('hidden');
+                successMsg.classList.add('flex');
+            }, 3000);
+        }
+
+        // Initialize on Load
+        document.addEventListener('DOMContentLoaded', () => {
+            renderStates();
+            updateStepperUI();
+        });
+
+    </script>
+</body>
+</html>
