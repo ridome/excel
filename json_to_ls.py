@@ -128,11 +128,8 @@ def process_file(input_path: str, output_path: str, url_prefix: str = ""):
             task = {
                 "data": {
                     "video":       media_path,          # Label Studio 通过 $video 读取
-                    "instruction": human_turn.get("value", "").replace("<image>\n", ""),
                     "gpt_output":  gpt_turn.get("value", ""),
                     "reason":      reason,
-                    "meta_level":  level,
-                    "meta_important": "Important" if important else "Normal",
                     "id":          item["id"],
                 },
                 "annotations": [
