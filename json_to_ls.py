@@ -132,7 +132,7 @@ def process_file(input_path: str, output_path: str, url_prefix: str = ""):
                     "reason":      reason,
                     "id":          item["id"],
                 },
-                "annotations": [
+                "predictions": [
                     {
                         "result": [
                             {
